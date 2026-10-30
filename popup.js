@@ -304,7 +304,7 @@ function applyStatus(result){
   $("signalValue").textContent=RouterCore.signalDisplay(result.router?.rssi).text;
   if(result.settings){
     $("routerAddress").textContent=result.settings.routerOrigin.replace(/^https?:\/\//,"");
-    $("refreshText").textContent=`Live update: ${result.settings.refreshInterval===500?".5":"1"}s`;
+    $("refreshText").textContent=result.settings.activeRouterType==="huawei"?"Live update: 2s":`Live update: ${result.settings.refreshInterval===500?".5":"1"}s`;
     setTheme(result.settings.theme);
   }
   const visible=result.wifi?.visible;

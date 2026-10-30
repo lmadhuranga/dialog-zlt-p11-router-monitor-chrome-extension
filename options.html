@@ -6,6 +6,7 @@
   <header><div><p class="eyebrow">ROUTER MONITOR</p><h1>Extension Settings</h1><p class="sub">Dialog ZLT P11 Outdoor · Software 40.8 · Dialog V9.8</p></div><button id="themeBtn" class="icon-btn">☾</button></header>
   <section class="card">
     <h2>Router Connection</h2>
+    <div class="field"><label for="routerType">Router API</label><select id="routerType"><option value="auto">Auto detect</option><option value="zlt">Dialog ZLT P11</option><option value="huawei">Huawei HiLink B310</option></select><small>Auto detects and switches between both APIs after a valid response. Temporary outages do not change detection. Selecting Huawei or ZLT pins that API. Huawei reads the browser-managed session cookie; Wi-Fi controls are available with ZLT.</small></div>
     <div class="field"><label for="routerOrigin">Router IP Address / URL</label><input id="routerOrigin" placeholder="192.168.8.1"></div>
     <div class="field"><label for="routerUsername">Admin Username</label><input id="routerUsername" autocomplete="username"></div>
     <div class="field"><label for="routerPassword">Admin Password</label><div class="password-row"><input id="routerPassword" type="password" autocomplete="new-password" placeholder="Leave blank to keep current password"><button id="showPassword" type="button">Show</button></div><small>Password is hashed locally before storage; plaintext is not saved.</small></div>

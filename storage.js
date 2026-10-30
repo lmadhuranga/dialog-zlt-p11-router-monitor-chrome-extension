@@ -20,6 +20,8 @@
       ...Core.DEFAULT_SETTINGS,
       ...settings,
       routerOrigin: Core.normalizeRouterOrigin(settings.routerOrigin || Core.DEFAULT_SETTINGS.routerOrigin),
+      routerType: Core.sanitizeRouterType(settings.routerType),
+      detectedRouterType: Core.sanitizeDetectedRouterType(settings.detectedRouterType),
       refreshInterval: Core.sanitizeRefreshInterval(settings.refreshInterval),
       theme: Core.sanitizeTheme(settings.theme),
       speedUnit: Core.sanitizeSpeedUnit(settings.speedUnit)

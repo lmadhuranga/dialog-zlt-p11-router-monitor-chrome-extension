@@ -24,6 +24,7 @@ async function save({silent=false}={}){
     const hash=pwd?RouterMD5.md5(pwd):existingHash||RouterCore.DEFAULT_SETTINGS.routerPasswordHash;
     const data={
       routerOrigin:origin,
+      routerType:RouterCore.sanitizeRouterType($("routerType").value),
       routerUsername:username,
       routerPasswordHash:hash,
       refreshInterval:RouterCore.sanitizeRefreshInterval($("refreshInterval").value),
@@ -41,6 +42,7 @@ async function save({silent=false}={}){
 async function load(){
   const s=await chrome.storage.local.get(RouterCore.DEFAULT_SETTINGS);
   $("routerOrigin").value=s.routerOrigin;
+  $("routerType").value=RouterCore.sanitizeRouterType(s.routerType);
   $("routerUsername").value=s.routerUsername;
   $("refreshInterval").value=String(RouterCore.sanitizeRefreshInterval(s.refreshInterval));
   $("theme").value=RouterCore.sanitizeTheme(s.theme);

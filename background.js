@@ -6,6 +6,7 @@ const CellHistory = RouterCellHistory;
 const storage = chrome.storage.local;
 
 let settings = { ...Core.DEFAULT_SETTINGS };
+let detectedRouterType = Core.DEFAULT_SETTINGS.detectedRouterType;
 let sessionId = "";
 let routerStatus = "connecting";
 let isRefreshing = false;
@@ -21,6 +22,8 @@ let extensionPausedUntil = null;
 
 let previousCounters = null;
 let previousTimestamp = null;
+let huaweiSignalXml = "";
+let huaweiSignalTimestamp = 0;
 
 let speed = { uploadKB: 0, downloadKB: 0, uploadMbps: 0, downloadMbps: 0 };
 let router = {
@@ -39,6 +42,9 @@ let wifiConfig = {
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 function tryParseJSON(text) { try { return JSON.parse(text); } catch { return null; } }
+function getActiveRouterType() {
+  return settings.routerType === "auto" ? detectedRouterType : settings.routerType;
+}
 
 function isSessionInvalid(text) {
   if (!text) return true;
@@ -65,6 +71,91 @@ function getHeaders() {
     "Referer": `${settings.routerOrigin}/mindex.html`,
     "X-Requested-With": "XMLHttpRequest"
   };
+}
+
+function parseHuaweiXmlValue(xml, tag) {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(xml).match(new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)</${escaped}>`, "i"));
+  return match ? match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim() : "";
+}
+
+function parseHuaweiSignal(xml) {
+  const tags = ["pci", "cell_id", "rsrq", "rsrp", "rssi", "sinr", "mode"];
+  const values = Object.fromEntries(tags.map(tag => [tag, parseHuaweiXmlValue(xml, tag)]));
+  if (Object.values(values).some(Boolean)) return values;
+
+  // Older B310 firmware returns: pci cell_id rsrq rsrp rssi sinr mode.
+  const fields = String(xml).trim().split(/\s+/);
+  if (fields.length < 7 || !/^\d+$/.test(fields[0]) || !/^\d+$/.test(fields[1])) return values;
+  return Object.fromEntries(tags.map((tag, index) => [tag, fields[index]]));
+}
+
+function parseHuaweiHostList(xml) {
+  const source = String(xml);
+  if (/\<error\b/i.test(source)) {
+    const code = parseHuaweiXmlValue(source, "code");
+    if (code === "100003") throw new Error("Sign in to the Huawei router web interface to view connected devices.");
+    throw new Error("Huawei router rejected the connected-device request.");
+  }
+  const hosts = [...source.matchAll(/<Host\b[^>]*>([\s\S]*?)<\/Host>/gi)].map(([, block]) => ({
+    ip: parseHuaweiXmlValue(block, "IpAddress") || parseHuaweiXmlValue(block, "ip_address"),
+    mac: parseHuaweiXmlValue(block, "MacAddress") || parseHuaweiXmlValue(block, "mac_address"),
+    hostname: parseHuaweiXmlValue(block, "HostName") || parseHuaweiXmlValue(block, "DeviceName") || parseHuaweiXmlValue(block, "device_name"),
+    leaseRemaining: parseHuaweiXmlValue(block, "LeaseTime") || ""
+  }));
+  return hosts;
+}
+
+async function huaweiRequest(path, allowApiError = false) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${settings.routerOrigin}${path}`, {
+      method: "GET", credentials: "include", cache: "no-store",
+      headers: { "Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache" },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = await response.text();
+    if (!text || (!allowApiError && /<error\b/i.test(text))) throw new Error("Invalid Huawei API response");
+    return text;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Router request timed out");
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
+async function getHuaweiInformation() {
+  const now = Date.now();
+  const refreshSignal = !huaweiSignalXml || now - huaweiSignalTimestamp >= 10_000;
+  const [signalResult, trafficXml] = await Promise.all([
+    refreshSignal ? huaweiRequest("/api/device/signal") : Promise.resolve(huaweiSignalXml),
+    huaweiRequest("/api/monitoring/traffic-statistics")
+  ]);
+  if (refreshSignal) {
+    huaweiSignalXml = signalResult;
+    huaweiSignalTimestamp = now;
+  }
+  const signalXml = huaweiSignalXml;
+  const signal = parseHuaweiSignal(signalXml);
+  const rssi = signal.rssi;
+  const downloadRaw = parseHuaweiXmlValue(trafficXml, "CurrentDownloadRate");
+  const uploadRaw = parseHuaweiXmlValue(trafficXml, "CurrentUploadRate");
+  const download = Number(downloadRaw);
+  const upload = Number(uploadRaw);
+  const rssiNumber = Number(String(rssi).match(/-?\d+(?:\.\d+)?/)?.[0]);
+  if (!rssi && !downloadRaw && !uploadRaw) throw new Error("Invalid Huawei API data");
+  if (Number.isFinite(rssiNumber)) router.rssi = normalizeRssi(rssiNumber);
+  speed = {
+    downloadKB: Number.isFinite(download) ? download / 1024 : 0,
+    uploadKB: Number.isFinite(upload) ? upload / 1024 : 0,
+    downloadMbps: Number.isFinite(download) ? download * 8 / 1_000_000 : 0,
+    uploadMbps: Number.isFinite(upload) ? upload * 8 / 1_000_000 : 0
+  };
+  router.wanIP = parseHuaweiXmlValue(signalXml, "ipaddr") || router.wanIP;
+  router.plmn = parseHuaweiXmlValue(signalXml, "plmn") || router.plmn;
+  updateBadge();
+  return { signalXml, trafficXml };
 }
 
 async function routerRequest(payload, timeoutMs = 5000, allowEmpty = false) {
@@ -165,6 +256,7 @@ function normalizeRssi(raw) {
 }
 
 async function getRouterInformation() {
+  if (getActiveRouterType() === "huawei") return getHuaweiInformation();
   const response = await routerRequestWithAuth({ cmd: 0, method: "GET", language: "EN", sessionId });
   const data = tryParseJSON(response);
   if (!data || typeof data !== "object") throw new Error("Invalid router JSON response");
@@ -180,6 +272,47 @@ async function getRouterInformation() {
   updateSpeed();
   updateBadge();
   return data;
+}
+
+// Probe the other API only after the configured API fails. A router outage or
+// login page is not evidence of a different router, so switching requires a
+// complete, well-formed response from the alternate API.
+async function detectAlternateRouterType(currentType = getActiveRouterType()) {
+  const alternate = currentType === "huawei" ? "zlt" : "huawei";
+  try {
+    if (alternate === "huawei") {
+      const [signalXml, trafficXml] = await Promise.all([
+        huaweiRequest("/api/device/signal"),
+        huaweiRequest("/api/monitoring/traffic-statistics")
+      ]);
+      const signal = parseHuaweiSignal(signalXml);
+      const download = parseHuaweiXmlValue(trafficXml, "CurrentDownloadRate");
+      const upload = parseHuaweiXmlValue(trafficXml, "CurrentUploadRate");
+      const hasSignal = [signal.pci, signal.cell_id, signal.rssi, signal.rsrp].some(Boolean);
+      if (!hasSignal || download === "" || upload === "" || !Number.isFinite(Number(download)) || !Number.isFinite(Number(upload))) return null;
+      huaweiSignalXml = signalXml;
+      huaweiSignalTimestamp = Date.now();
+      return alternate;
+    }
+
+    const response = await routerRequestWithAuth({ cmd: 0, method: "GET", language: "EN", sessionId });
+    const data = tryParseJSON(response);
+    if (!data || typeof data !== "object" || isSessionInvalid(response)) return null;
+    const hasRouterFields = data.rssi !== undefined && data.wanRxBytes !== undefined && data.wanTxBytes !== undefined;
+    return hasRouterFields ? alternate : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function switchRouterType(type) {
+  if (!type || type === detectedRouterType) return false;
+  detectedRouterType = type;
+  settings = { ...settings, detectedRouterType: type };
+  sessionId = "";
+  resetSpeed();
+  await storage.set({ detectedRouterType: type });
+  return true;
 }
 
 function parseWifiResponse(responseText) {
@@ -212,6 +345,7 @@ function parseWifiResponse(responseText) {
 }
 
 async function getWifiVisibility() {
+  if (getActiveRouterType() === "huawei") throw new Error("Wi-Fi controls are not available for this Huawei API.");
   const response = await routerRequestWithAuth({ cmd: 117, method: "GET", language: "EN", sessionId });
   const result = parseWifiResponse(response);
   updateBadge();
@@ -326,6 +460,21 @@ function pausedStatusPayload() {
 
 
 async function getCellDiagnostics() {
+  if (getActiveRouterType() === "huawei") {
+    const signalXml = await huaweiRequest("/api/device/signal");
+    const signal = parseHuaweiSignal(signalXml);
+    const rsrp = CellHistory.numericValue(signal.rsrp);
+    const cellId = CellHistory.numericValue(signal.cell_id);
+    if (rsrp === null || cellId === null) throw new Error("Huawei signal response did not contain cell ID and RSRP.");
+    const globalCellId = Math.trunc(cellId);
+    return {
+      globalCellId,
+      globalCellIdHex: `0x${globalCellId.toString(16).padStart(8, "0")}`,
+      eNodeBId: globalCellId >> 8,
+      sectorId: globalCellId & 255,
+      rsrpDbm: rsrp > 0 ? -Math.abs(rsrp) : rsrp
+    };
+  }
   const response = await routerRequestWithAuth({
     method: "POST",
     cmd: 186,
@@ -425,23 +574,27 @@ async function notifyNewDevice(device) {
 
 
 async function getConnectedDevices({ updateRegistry = true, notify = false } = {}) {
-  const response = await routerRequestWithAuth({
+  const activeRouterType = getActiveRouterType();
+  const response = activeRouterType === "huawei"
+    ? await huaweiRequest("/api/wlan/host-list", true)
+    : await routerRequestWithAuth({
     cmd: 121,
     method: "GET",
     language: "EN",
     sessionId
   });
 
-  const data = tryParseJSON(response);
-  if (!data || data.success !== true || !Array.isArray(data.data)) {
-    throw new Error("Invalid connected devices response");
-  }
+  const data = activeRouterType === "huawei" ? null : tryParseJSON(response);
+  const sourceDevices = activeRouterType === "huawei"
+    ? parseHuaweiHostList(response).map((device, index) => [device.ip, device.mac, device.hostname, device.leaseRemaining, index])
+    : data?.data;
+  if (!Array.isArray(sourceDevices) || (activeRouterType !== "huawei" && data?.success !== true)) throw new Error("Invalid connected devices response");
 
   const { registry, baselineInitialized } = await getDeviceRegistry();
   const now = Date.now();
   let changed = false;
 
-  const devices = data.data.map((row, index) => {
+  const devices = sourceDevices.map((row, index) => {
     const mac = normalizeMac(row?.[1]);
     const hostname = String(row?.[2] || "");
     let record = registry[mac];
@@ -500,7 +653,7 @@ async function getConnectedDevices({ updateRegistry = true, notify = false } = {
     success: true,
     devices,
     count: devices.length,
-    expiredTime: Number(data.expiredTime) || null
+    expiredTime: Number(data?.expiredTime) || null
   };
 }
 
@@ -561,7 +714,7 @@ function getStatus() {
     status: routerStatus,
     speed: { ...speed },
     router: { ...router },
-    wifi: {
+    wifi: getActiveRouterType() === "huawei" ? null : {
       visible: wifiConfig.macinfo_broadcast === "0",
       hidden: wifiConfig.macinfo_broadcast === "1",
       broadcast: wifiConfig.macinfo_broadcast,
@@ -569,6 +722,8 @@ function getStatus() {
     },
     settings: {
       routerOrigin: settings.routerOrigin,
+      routerType: settings.routerType,
+      activeRouterType: getActiveRouterType(),
       routerUsername: settings.routerUsername,
       refreshInterval: settings.refreshInterval,
       theme: settings.theme,
@@ -683,6 +838,19 @@ async function refreshRouter() {
     await updateStableConnectionState(true);
   } catch (error) {
     resetSpeed();
+    const alternate = settings.routerType === "auto" ? await detectAlternateRouterType() : null;
+    if (alternate) {
+      try {
+        await switchRouterType(alternate);
+        await getRouterInformation();
+        routerStatus = "connected";
+        await updateStableConnectionState(true);
+        return getStatus();
+      } catch (_) {
+        // Keep the positively identified API. The regular refresh loop will
+        // retry it after a transient outage and restore the live display.
+      }
+    }
     routerStatus = error.message === "AUTHENTICATION_FAILED" ? "authentication_failed" : "server_error";
     setErrorBadge();
     await updateStableConnectionState(false);
@@ -695,11 +863,23 @@ async function testConnection() {
   sessionId = "";
   resetSpeed();
   try {
-    const ok = await authenticate();
-    if (!ok) return {success:false, message:"Authentication failed. Check username/password."};
+    if (getActiveRouterType() !== "huawei") {
+      const ok = await authenticate();
+      if (!ok) return {success:false, message:"Authentication failed. Check username/password."};
+    }
     await getRouterInformation();
+    routerStatus = "connected";
     return {success:true, message:"Connected successfully.", status:getStatus()};
   } catch (error) {
+    const alternate = settings.routerType === "auto" ? await detectAlternateRouterType() : null;
+    if (alternate) {
+      try {
+        await switchRouterType(alternate);
+        await getRouterInformation();
+        routerStatus = "connected";
+        return {success:true, message:`Connected successfully. Detected ${alternate === "huawei" ? "Huawei HiLink" : "ZLT"} API.`, status:getStatus()};
+      } catch (_) {}
+    }
     return {success:false, message:error.message || "Unable to connect to router."};
   }
 }
@@ -709,12 +889,15 @@ function scheduleRefresh() {
   refreshTimer = setTimeout(async () => {
     await refreshRouter();
     scheduleRefresh();
-  }, Core.sanitizeRefreshInterval(settings.refreshInterval));
+  }, getActiveRouterType() === "huawei" ? 2000 : Core.sanitizeRefreshInterval(settings.refreshInterval));
 }
 
 async function reloadSettings() {
   settings = await Store.getSettings(storage);
+  detectedRouterType = settings.detectedRouterType;
   sessionId = "";
+  huaweiSignalXml = "";
+  huaweiSignalTimestamp = 0;
   resetSpeed();
   lastStableConnectionState = null;
   scheduleRefresh();
@@ -722,7 +905,7 @@ async function reloadSettings() {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (["routerOrigin","routerUsername","routerPasswordHash","refreshInterval","theme","speedUnit"].some(k => changes[k])) {
+  if (["routerOrigin","routerType","detectedRouterType","routerUsername","routerPasswordHash","refreshInterval","theme","speedUnit"].some(k => changes[k])) {
     reloadSettings().then(refreshRouter);
   }
 });
@@ -760,6 +943,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   chrome.action.setBadgeBackgroundColor({color:"#475569"});
   settings = await Store.initializeSettings(storage);
   settings = await Store.getSettings(storage);
+  detectedRouterType = settings.detectedRouterType;
   const pauseState = await getExtensionPauseState();
   if (pauseState.paused) setPausedBadge();
   scheduleRefresh();

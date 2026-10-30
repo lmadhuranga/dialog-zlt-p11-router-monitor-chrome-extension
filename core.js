@@ -5,6 +5,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const DEFAULT_SETTINGS = Object.freeze({
     routerOrigin: "http://192.168.8.1",
+    routerType: "auto",
+    detectedRouterType: "zlt",
     routerUsername: "admin",
     routerPasswordHash: "21232f297a57a5a743894a0e4a801fc3",
     refreshInterval: 1000,
@@ -42,6 +44,14 @@
 
   function sanitizeSpeedUnit(value) {
     return value === "Mbps" ? "Mbps" : "KB/s";
+  }
+
+  function sanitizeRouterType(value) {
+    return ["auto", "huawei", "zlt"].includes(value) ? value : "auto";
+  }
+
+  function sanitizeDetectedRouterType(value) {
+    return value === "huawei" ? "huawei" : "zlt";
   }
 
   function signalDisplay(raw) {
@@ -121,6 +131,8 @@
     sanitizeRefreshInterval,
     sanitizeTheme,
     sanitizeSpeedUnit,
+    sanitizeRouterType,
+    sanitizeDetectedRouterType,
     signalDisplay,
     formatMbps,
     formatKB,

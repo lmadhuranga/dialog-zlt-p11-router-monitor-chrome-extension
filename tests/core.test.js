@@ -20,3 +20,10 @@ test("speed calculation",()=>{
   assert.equal(s.uploadMbps,4);
 });
 test("default speed unit is KB/s",()=>assert.equal(Core.DEFAULT_SETTINGS.speedUnit,"KB/s"));
+test("router API selection defaults to auto and accepts manual overrides",()=>{
+  assert.equal(Core.sanitizeRouterType(undefined),"auto");
+  assert.equal(Core.sanitizeRouterType("auto"),"auto");
+  assert.equal(Core.sanitizeRouterType("huawei"),"huawei");
+  assert.equal(Core.sanitizeRouterType("zlt"),"zlt");
+  assert.equal(Core.sanitizeRouterType("unknown"),"auto");
+});

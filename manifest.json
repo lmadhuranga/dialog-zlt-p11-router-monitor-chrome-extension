@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Router Monitor",
   "version": "2.7.0",
-  "description": "Monitor speed, signal strength and Wi-Fi visibility on the Dialog ZLT P11 Outdoor LTE CPE.",
+  "description": "Monitor speed and signal on Dialog ZLT P11 and Huawei HiLink B310 routers.",
   "permissions": [
     "storage",
     "notifications",

@@ -1,10 +1,16 @@
 # Router Monitor
 
-A Chrome Manifest V3 extension for monitoring a **Dialog Sri Lanka ZLT P11 Outdoor LTE CPE** directly from the browser.
+A Chrome Manifest V3 extension for monitoring Dialog ZLT P11 and Huawei HiLink B310 routers directly from the browser.
 
 Router Monitor connects only to the router's local web API and provides live WAN traffic, signal monitoring, Wi-Fi controls, device visibility, LTE cell tracking, local history analytics, and a compact always-on-top floating HUD.
 
 ## Target Router
+
+**Auto detect** is the default. The extension detects ZLT P11 and Huawei HiLink B310 APIs at the configured router origin (default `http://192.168.8.1`) and stores the last detected API as the next starting point. If that API stops responding, it probes the other API and switches only after receiving a complete, valid router response. An outage, login page, or invalid response does not change the detected API; the regular refresh loop keeps retrying so monitoring recovers when the router returns. Selecting Huawei or ZLT pins that API and disables automatic switching.
+
+Huawei reads the browser-managed router session cookie and polls `/api/device/signal` plus `/api/monitoring/traffic-statistics`. Its API reports byte-per-second rates, which the extension converts to the selected KB/s or Mbps display unit. Chrome certificate validation is unchanged, so use HTTP for the router's self-signed HTTPS endpoint unless its certificate is trusted in Chrome.
+
+Huawei mode polls traffic every 2 seconds and signal every 10 seconds. The B310 signal endpoint also supports local cell history from its cell ID and RSRP fields, and connected-device scans use HiLink's `/api/wlan/host-list` endpoint when the browser has an authenticated router session. If the router returns `100003` (no rights), sign in to the Huawei router web interface in Chrome first. Huawei Wi-Fi visibility writes remain unavailable until the firmware's observed response format can be mapped safely to the HiLink write schema; no router settings are changed by the extension during connection checks.
 
 This project has been developed and verified against:
 
