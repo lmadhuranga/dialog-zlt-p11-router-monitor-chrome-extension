@@ -27,3 +27,8 @@ test("router API selection defaults to auto and accepts manual overrides",()=>{
   assert.equal(Core.sanitizeRouterType("zlt"),"zlt");
   assert.equal(Core.sanitizeRouterType("unknown"),"auto");
 });
+test("router display name follows the active API, with a neutral fallback",()=>{
+  assert.equal(Core.routerDisplayName("zlt"),"Dialog ZLT P11");
+  assert.equal(Core.routerDisplayName("huawei"),"Huawei HiLink B310");
+  assert.equal(Core.routerDisplayName(undefined),"Router");
+});

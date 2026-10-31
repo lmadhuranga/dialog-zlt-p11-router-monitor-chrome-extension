@@ -54,6 +54,10 @@
     return value === "huawei" ? "huawei" : "zlt";
   }
 
+  function routerDisplayName(value) {
+    return value === "huawei" ? "Huawei HiLink B310" : value === "zlt" ? "Dialog ZLT P11" : "Router";
+  }
+
   function signalDisplay(raw) {
     const n = Number(raw);
     if (!Number.isFinite(n)) return { value: "--", text: "-- dBm", quality: "unknown" };
@@ -133,6 +137,7 @@
     sanitizeSpeedUnit,
     sanitizeRouterType,
     sanitizeDetectedRouterType,
+    routerDisplayName,
     signalDisplay,
     formatMbps,
     formatKB,

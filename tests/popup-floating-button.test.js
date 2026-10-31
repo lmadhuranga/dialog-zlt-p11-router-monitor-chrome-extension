@@ -7,6 +7,11 @@ const root = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "popup.js"), "utf8");
 
+test("popup device label follows the active router reported by status", () => {
+  assert.match(html, /id="deviceLabel" class="device-label">Router<\/span>/);
+  assert.match(js, /\$\("deviceLabel"\)\.textContent=RouterCore\.routerDisplayName\(result\.settings\?\.activeRouterType\)/);
+});
+
 test("main extension popup contains Float button", () => {
   assert.match(html, /id="floatCellBtn"/);
   assert.match(html, />▣ Float</);

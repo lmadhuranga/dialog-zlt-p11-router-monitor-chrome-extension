@@ -292,6 +292,7 @@ function applyStatus(result){
     hideStateOverlay();
   }
   const speedUnit = RouterCore.sanitizeSpeedUnit(result.settings?.speedUnit);
+  $("deviceLabel").textContent=RouterCore.routerDisplayName(result.settings?.activeRouterType);
   if (speedUnit === "Mbps") {
     $("downloadSpeed").textContent = RouterCore.formatMbps(result.speed?.downloadMbps);
     $("uploadSpeed").textContent = RouterCore.formatMbps(result.speed?.uploadMbps);
